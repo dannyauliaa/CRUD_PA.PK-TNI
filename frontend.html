@@ -1,0 +1,343 @@
+// App.js - Frontend React yang terhubung ke Backend API
+import React, { useState, useEffect } from 'react';
+import { Upload, File, Share2, Lock, LogIn, UserPlus, LogOut, Users, Download, Search } from 'lucide-react';
+
+const API_URL = 'http://localhost:3001/api';
+
+export default function SecureFileSharing() {
+  const [token, setToken] = useState(localStorage.getItem('token'));
+  const [currentUser, setCurrentUser] = useState(null);
+  const [view, setView] = useState('login');
+  const [myFiles, setMyFiles] = useState([]);
+  const [sharedFiles, setSharedFiles] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const [loginForm, setLoginForm] = useState({ username: '', password: '' });
+  const [registerForm, setRegisterForm] = useState({ username: '', password: '', confirmPassword: '' });
+  const [uploadFile, setUploadFile] = useState(null);
+  const [uploadForm, setUploadForm] = useState({ name: '', description: '' });
+  const [shareForm, setShareForm] = useState({ fileId: null, username: '', showModal: false });
+  const [searchTerm, setSearchTerm] = useState('');
+
+  useEffect(() => {
+    if (token) {
+      verifyToken();
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (currentUser && view === 'myFiles') {
+      loadMyFiles();
+    } else if (currentUser && view === 'shared') {
+      loadSharedFiles();
+    }
+  }, [currentUser, view]);
+
+  const verifyToken = async () => {
+    try {
+      const res = await fetch(`${API_URL}/files`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (res.ok) {
+        const username = JSON.parse(atob(token.split('.')[1])).username;
+        setCurrentUser(username);
+      } else {
+        handleLogout();
+      }
+    } catch (error) {
+      handleLogout();
+    }
+  };
+
+  const handleRegister = async () => {
+    const { username, password, confirmPassword } = registerForm;
+
+    if (!username || !password) {
+      alert('Username dan password harus diisi!');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      alert('Password tidak cocok!');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        alert('Registrasi berhasil! Silakan login.');
+        setView('login');
+        setRegisterForm({ username: '', password: '', confirmPassword: '' });
+      } else {
+        alert(data.error || 'Gagal registrasi');
+      }
+    } catch (error) {
+      alert('Error: ' + error.message);
+    }
+  };
+
+  const handleLogin = async () => {
+    const { username, password } = loginForm;
+
+    if (!username || !password) {
+      alert('Username dan password harus diisi!');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        localStorage.setItem('token', data.token);
+        setToken(data.token);
+        setCurrentUser(data.user.username);
+        setView('myFiles');
+        setLoginForm({ username: '', password: '' });
+        alert(`Selamat datang, ${data.user.username}!`);
+      } else {
+        alert(data.error || 'Gagal login');
+      }
+    } catch (error) {
+      alert('Error: ' + error.message);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    setToken(null);
+    setCurrentUser(null);
+    setView('login');
+    setMyFiles([]);
+    setSharedFiles([]);
+  };
+
+  const handleUpload = async () => {
+    if (!uploadFile) {
+      alert('Pilih file terlebih dahulu!');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', uploadFile);
+    formData.append('name', uploadForm.name || uploadFile.name);
+    formData.append('description', uploadForm.description);
+
+    try {
+      setLoading(true);
+      const res = await fetch(`${API_URL}/upload`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        alert('File berhasil diupload dengan enkripsi!');
+        setUploadFile(null);
+        setUploadForm({ name: '', description: '' });
+        document.getElementById('fileInput').value = '';
+        setView('myFiles');
+        loadMyFiles();
+      } else {
+        alert(data.error || 'Gagal upload');
+      }
+    } catch (error) {
+      alert('Error: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadMyFiles = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch(`${API_URL}/files`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setMyFiles(data.files || []);
+      }
+    } catch (error) {
+      console.error('Error loading files:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadSharedFiles = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch(`${API_URL}/shared`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setSharedFiles(data.files || []);
+      }
+    } catch (error) {
+      console.error('Error loading shared files:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleShare = async () => {
+    const { fileId, username } = shareForm;
+
+    if (!username) {
+      alert('Username harus diisi!');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/share`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ fileId, targetUsername: username })
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        alert(data.message);
+        setShareForm({ fileId: null, username: '', showModal: false });
+      } else {
+        alert(data.error || 'Gagal share');
+      }
+    } catch (error) {
+      alert('Error: ' + error.message);
+    }
+  };
+
+  const handleDownload = async (fileId, fileName) => {
+    try {
+      const res = await fetch(`${API_URL}/download/${fileId}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        alert('File berhasil di-download dan didekripsi!');
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Gagal download');
+      }
+    } catch (error) {
+      alert('Error: ' + error.message);
+    }
+  };
+
+  const formatDate = (dateString) => {
+    return new Date(dateString).toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const formatSize = (bytes) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
+  const filteredMyFiles = myFiles.filter(f =>
+    f.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const filteredSharedFiles = sharedFiles.filter(f =>
+    f.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-100 flex items-center justify-center p-6">
+        <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-purple-500 to-blue-500 rounded-full mb-4">
+              <Lock className="w-8 h-8 text-white" />
+            </div>
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">Secure File Share</h1>
+            <p className="text-gray-600">Upload & Share dengan Enkripsi AES-256</p>
+          </div>
+
+          {view === 'login' ? (
+            <div className="space-y-4">
+              <h2 className="text-xl font-bold text-gray-800 mb-4">Login</h2>
+              <input
+                type="text"
+                placeholder="Username"
+                value={loginForm.username}
+                onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              />
+              <input
+                type="password"
+                placeholder="Password"
+                value={loginForm.password}
+                onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              />
+              <button
+                onClick={handleLogin}
+                className="w-full bg-gradient-to-r from-purple-500 to-blue-500 text-white py-3 rounded-lg hover:from-purple-600 hover:to-blue-600 transition flex items-center justify-center gap-2 font-medium"
+              >
+                <LogIn className="w-5 h-5" />
+                Login
+              </button>
+              <p className="text-center text-gray-600">
+                Belum punya akun?{' '}
+                <button onClick={() => setView('register')} className="text-purple-600 font-medium hover:underline">
+                  Daftar
+                </button>
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <h2 className="text-xl font-bold text-gray-800 mb-4">Daftar Akun</h2>
+              <input
+                type="text"
+                placeholder="Username"
+                value={registerForm.username}
+                onChange={(e) => setRegisterForm({ ...registerForm, username: e.target.value })}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              />
+              <input
+                type="password"
+                placeholder="Password (min 4 karakter)"
+                value={registerForm.password}
+                onChange={(e) => setRegisterForm({ ...registerForm, password: e.target.value })}
+                className="w
